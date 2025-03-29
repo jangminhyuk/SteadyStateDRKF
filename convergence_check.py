@@ -80,7 +80,35 @@ def check_assumptions(A, Sigma_w_nom, C, Sigma_v_nom, T):
         raise ValueError(f"O_T does not have full column rank; (A, C) may not be observable with T={T}")
     print("Assumptions verified.")
 
-
+# -------------------------------------------------------
+# DR Kalman filter measurement update (infinite-horizon version)
+# -------------------------------------------------------
+def dr_kf_solve_measurement_inf(A, C, Sigma_w_nom, Sigma_v_nom, theta_x, delta=1e-6):
+    n = C.shape[1]
+    m = Sigma_v_nom.shape[0]
+    Sigma_x_var = cp.Variable((n, n), PSD=True)
+    Sigma_x_minus_var = cp.Variable((n, n), PSD=True)
+    Sigma_x_minus_hat_var = cp.Variable((n, n), PSD=True)
+    Y = cp.Variable((n, n))
+    
+    obj = cp.Maximize(cp.trace(Sigma_x_var))
+    
+    constraints = [
+        cp.bmat([
+            [Sigma_x_minus_var - Sigma_x_var, Sigma_x_minus_var @ C.T],
+            [C @ Sigma_x_minus_var, C @ Sigma_x_minus_var @ C.T + Sigma_v_nom]
+        ]) >> 0,
+        cp.trace(Sigma_x_minus_hat_var + Sigma_x_minus_var - 2*Y) <= theta_x**2,
+        cp.bmat([[Sigma_x_minus_hat_var, Y],
+                 [Y.T, Sigma_x_minus_var]
+                ]) >> 0,
+        Sigma_x_minus_hat_var == A @ Sigma_x_var @ A.T + Sigma_w_nom
+    ]
+    
+    prob = cp.Problem(obj, constraints)
+    prob.solve(solver=cp.MOSEK, verbose=False)
+    
+    return Sigma_x_var.value
 # -------------------------------------------------------
 # DR Kalman filter measurement update (only theta_x version)
 # -------------------------------------------------------
@@ -254,19 +282,27 @@ def run_dr_kf_once(n=10, m=10, steps=200, T=20, q=100, tol=1e-4):
         Sigma_x_minus = np.eye(n)
         posterior_list = []
         conv_norms = []
+        trace_rel_diff_list = []  # List to store relative trace differences
         
+        # Compute the infinite-horizon covariance using the SDP formulation
+        Sigma_x_inf = dr_kf_solve_measurement_inf(A, C, Sigma_w_nom, Sigma_v_nom, theta_max)
         for step in range(steps):
             try:
                 Sigma_x_sol = dr_kf_solve_measurement_update(Sigma_x_minus, A, C, Sigma_v_nom, theta_max)
             except cp.error.SolverError:
                 return None
             posterior_list.append(Sigma_x_sol)
+            
+            # Compute the relative trace difference
+            current_rel_trace_diff = abs(np.trace(Sigma_x_inf) - np.trace(Sigma_x_sol)) / np.trace(Sigma_x_inf)
+            trace_rel_diff_list.append(current_rel_trace_diff)
+            
             if step > 0:
                 diff_norm = np.linalg.norm(posterior_list[step] - posterior_list[step-1], 'fro')
                 conv_norms.append(diff_norm)
-                if diff_norm < tol:
-                    print(f"Early stopping at iteration {step} with convergence norm {diff_norm:.4e}")
-                    break
+                # if diff_norm < tol:
+                #     print(f"Early stopping at iteration {step} with convergence norm {diff_norm:.4e}")
+                #     break
             Sigma_x_minus = A @ Sigma_x_sol @ A.T + Sigma_w_nom
             
         print("--------------------------------------------------")
@@ -282,7 +318,9 @@ def run_dr_kf_once(n=10, m=10, steps=200, T=20, q=100, tol=1e-4):
             "phi_T": phi_T,
             "theta_max": theta_max,
             "posterior_list": posterior_list,
-            "conv_norms": conv_norms
+            "conv_norms": conv_norms,
+            "trace_rel_diff_list": trace_rel_diff_list,
+            "Sigma_x_inf": Sigma_x_inf
         }
     except (cp.error.SolverError, Exception):
         return None
@@ -298,7 +336,7 @@ if __name__=="__main__":
     # Run with longer time horizon: steps increased to 1000
     while len(valid_experiments) < num_exp:
         results = Parallel(n_jobs=1)(
-            delayed(run_dr_kf_once)(n=2, m=1, steps=1000, T=8, q=20, tol=tol)
+            delayed(run_dr_kf_once)(n=2, m=1, steps=20, T=8, q=20, tol=tol)
             for _ in range(batch_size)
         )
         for res in results:
@@ -307,7 +345,7 @@ if __name__=="__main__":
                 final_norm = res["conv_norms"][-1] if res["conv_norms"] else float('inf')
                 if final_norm < tol:
                     success_count += 1
-                print(f"\nValid experiment count: {len(valid_experiments)}/{num_exp}")
+                #print(f"\nValid experiment count: {len(valid_experiments)}/{num_exp}")
                 if len(valid_experiments) >= num_exp:
                     break
 
@@ -320,25 +358,22 @@ if __name__=="__main__":
     # --------------------------
     res = valid_experiments[0]
     posterior_list = res["posterior_list"]
-
+    Sigma_x_inf = res["Sigma_x_inf"]
+    
     converged_cov = posterior_list[-1]
 
     # Compute the 2-norm error for each time step with respect to the converged covariance
     errors_conv = [np.linalg.norm(S - converged_cov, 2) for S in posterior_list]
 
 
-    # Plot the convergence error (posterior vs. converged)
     plt.figure(figsize=(10, 6))
-    # Plot all but the last point with a line
-    plt.semilogy(range(len(errors_conv)-1), errors_conv[:-1],
+    plt.semilogy(range(len(res["trace_rel_diff_list"])), res["trace_rel_diff_list"],
                 marker='o', linestyle='-', linewidth=1, markersize=5, color='black')
-    # Plot the last point
-    plt.semilogy(len(errors_conv)-1, errors_conv[-1],
-                marker='o', linestyle='None', markersize=5, color='black')
-    plt.xlabel('Time Step', fontsize=16)
-    plt.ylabel(r'$\|\Sigma_{x,t} - \Sigma_{x,\mathrm{converged}}\|_2$', fontsize=16)
-    plt.grid(True, which='both', linestyle='--', linewidth=0.5)
+    plt.xlabel('Time Step', fontsize=20)
+    plt.ylabel(r'$\left|\frac{\mathrm{Tr}[\Sigma_{x,t}] - \mathrm{Tr}[\Sigma_{x,ss}^{*}]}{\mathrm{Tr}[\Sigma_{x,ss}^{*}]}\right|$', fontsize=24)
+    plt.grid(True, which='major', linestyle='--', linewidth=0.5)
     plt.tick_params(axis='both', which='major', labelsize=14)
+    plt.xticks([0, 5, 10, 15, 20])
     plt.tight_layout()
     plt.savefig('convergence_rate_analysis.png', dpi=300, bbox_inches='tight')
     plt.show()
