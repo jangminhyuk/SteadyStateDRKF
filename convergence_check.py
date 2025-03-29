@@ -370,7 +370,7 @@ if __name__=="__main__":
     plt.semilogy(range(len(res["trace_rel_diff_list"])), res["trace_rel_diff_list"],
                 marker='o', linestyle='-', linewidth=1, markersize=5, color='black')
     plt.xlabel('Time Step', fontsize=20)
-    plt.ylabel(r'$\left|\frac{\mathrm{Tr}[\Sigma_{x,t}] - \mathrm{Tr}[\Sigma_{x,ss}^{*}]}{\mathrm{Tr}[\Sigma_{x,ss}^{*}]}\right|$', fontsize=24)
+    plt.ylabel(r'$\left|\frac{\mathrm{Tr}[\Sigma_{x,ss}^{*}] - \mathrm{Tr}[\Sigma_{x,t}]}{\mathrm{Tr}[\Sigma_{x,ss}^{*}]}\right|$', fontsize=24)
     plt.grid(True, which='major', linestyle='--', linewidth=0.5)
     plt.tick_params(axis='both', which='major', labelsize=14)
     plt.xticks([0, 5, 10, 15, 20])
