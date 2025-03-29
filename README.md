@@ -13,7 +13,7 @@ The experiments compare the performance of different filtering methods under var
 - **[CVXPY](https://www.cvxpy.org/)**
 - **[MOSEK (>= 9.3)](https://www.mosek.com/)** (required by CVXPY for solving optimization problems)
 - (pickle5) install if you encounter compatibility issues with pickle
-- joblib (>=1.4.2, Used for parallel computation of out-of-sample experiment)
+- joblib (>=1.4.2, Used for parallel computation)
 
 ### main.py
 
