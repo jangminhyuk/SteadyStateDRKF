@@ -17,7 +17,7 @@ The experiments compare the performance of different filtering methods under var
 
 ### main.py
 
-Runs closed–loop simulations applying an LQR controller with various filters. The experiments consider both Gaussian and U–Quadratic uncertainty distributions. After the experiments, results (including optimal robust parameter selection) are saved and a readable summary is printed.
+Runs closed–loop simulations applying an LQR controller with various filters. The experiments consider both Gaussian and U–Quadratic uncertainty distributions. After the experiments, results (including optimal robust parameter selection) are saved.
 
 - For Gaussian uncertainties
 
